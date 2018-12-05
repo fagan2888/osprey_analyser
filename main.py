@@ -2,6 +2,7 @@ import numpy as np
 import sys
 import datetime
 import GPy
+import itertools
 
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
@@ -60,13 +61,13 @@ def get_data(history, searchspace):
     transformed_time /= transform_params[3]
 
 
-    Y = np.mean(transformed_scores, axis=1)
-    V = np.var(transformed_scores, axis=1, ddof=1)
-    TY = transformed_time
+    # Include all cv folds in the scoring instead of using averages
+    Y = transformed_scores.ravel()
+    TY = list(itertools.chain.from_iterable(itertools.repeat(x,3) for x in transformed_time))
+    X = list(itertools.chain.from_iterable(itertools.repeat(x,3) for x in X))
 
     return (np.array(X).reshape(-1, searchspace.n_dims),
             np.array(Y).reshape(-1, 1),
-            np.array(V).reshape(-1, 1),
             np.array(TY).reshape(-1,1),
             transform_params)
 
@@ -87,25 +88,37 @@ def data_from_config(config_file):
 def score_mae(y, y_pred):
     return np.sum(abs(y-y_pred)) / y.size
 
-def fit_gp(X, Y, V=None):
+def fit_gp(X, Y):
     """
     Fit GP
     """
-    kernel = (GPy.kern.Matern52(input_dim=X.shape[1],ARD=True)
-             + GPy.kern.Bias(X.shape[1])
-             )
+    kernels =  [GPy.kern.RBF(input_dim=X.shape[1],ARD=True) + GPy.kern.Bias(X.shape[1]),
+                GPy.kern.RBF(input_dim=X.shape[1],ARD=True),
+                GPy.kern.Matern52(input_dim=X.shape[1],ARD=True) + GPy.kern.Bias(X.shape[1]),
+                GPy.kern.Matern52(input_dim=X.shape[1],ARD=True),
+                GPy.kern.Matern32(input_dim=X.shape[1],ARD=True) + GPy.kern.Bias(X.shape[1]),
+                GPy.kern.Matern32(input_dim=X.shape[1],ARD=True),
+                GPy.kern.Exponential(input_dim=X.shape[1],ARD=True) + GPy.kern.Bias(X.shape[1]),
+                GPy.kern.Exponential(input_dim=X.shape[1],ARD=True)]
+    models = []
+    for kernel in kernels:
 
-    if V is not None:
-        kernel += GPy.kern.WhiteHeteroscedastic(X.shape[1],X.shape[0])
+        #if V is not None:
+        #    kernel += GPy.kern.WhiteHeteroscedastic(X.shape[1],X.shape[0])
 
-    model = GPy.models.GPRegression(X,Y,kernel)
+        model = GPy.models.GPRegression(X,Y,kernel)
 
-    if V is not None:
-        model.sum.white_hetero.variance.fix(V.ravel())
+        #if V is not None:
+        #    model.sum.white_hetero.variance.fix(V.ravel())
 
-    model.optimize_restarts(num_restarts=5, robust=True, verbose=False)
+        model.optimize_restarts(num_restarts=5, robust=True, verbose=False)
+        models.append(model)
 
-    return model
+    aicc = []
+    for i, model in enumerate(models):
+        aicc.append(ic(model, 'aicc'))
+
+    return models[np.argmin(aicc)]
 
 def ic(model,method='bic'):
     ll = model.log_likelihood()
@@ -227,9 +240,8 @@ def plot_single(score_model, time_model, transform_params):
 
 if __name__ == "__main__":
     config_file = sys.argv[1]
-    X, Y, V, TY, transform_params, searchspace = data_from_config(config_file)
-    print(X.shape[0])
-    score_model = fit_gp(X,Y,V)
+    X, Y, TY, transform_params, searchspace = data_from_config(config_file)
+    score_model = fit_gp(X,Y)
     time_model = fit_gp(X,TY)
 
 
