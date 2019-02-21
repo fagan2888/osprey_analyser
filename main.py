@@ -267,11 +267,6 @@ if __name__ == "__main__":
     config_file = sys.argv[1]
     # Parse the config file
     X, Y, TX, TY, transform_params, searchspace = data_from_config(config_file)
-    #n = 75
-    #X = X[:3*n]
-    #Y = Y[:3*n]
-    #TX = TX[:n]
-    #TY = TY[:n]
     # Fit score and time model
     score_model = fit_gp(X,Y)
     time_model = fit_gp(TX,TY)
@@ -286,4 +281,5 @@ if __name__ == "__main__":
     x = searchspace.point_from_gp(x)
     print(y)
     print(x)
+    # This plots each parameter vs the expected score, but takes a long time.
     #plot_single(score_model, time_model, transform_params, time_limit=8)
